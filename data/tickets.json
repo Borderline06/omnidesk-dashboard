@@ -1,0 +1,37 @@
+[
+    {
+        "ID_Ticket": "TKT-001",
+        "Usuario_Telegram": "@usuario01",
+        "Descripcion": "No puedo iniciar sesión en el sistema",
+        "Nivel_Gravedad": "Media",
+        "Estado": "Abierto"
+    },
+    {
+        "ID_Ticket": "TKT-002",
+        "Usuario_Telegram": "@usuario02",
+        "Descripcion": "El sistema no responde",
+        "Nivel_Gravedad": "Alta",
+        "Estado": "En Proceso"
+    },
+    {
+        "ID_Ticket": "TKT-003",
+        "Usuario_Telegram": "@usuario03",
+        "Descripcion": "No puedo restablecer mi contraseña",
+        "Nivel_Gravedad": "Baja",
+        "Estado": "Resuelto"
+    },
+    {
+        "ID_Ticket": "TKT-004",
+        "Usuario_Telegram": "@usuario04",
+        "Descripcion": "Error al generar el reporte",
+        "Nivel_Gravedad": "Alta",
+        "Estado": "Abierto"
+    },
+    {
+        "ID_Ticket": "TKT-005",
+        "Usuario_Telegram": "@usuario05",
+        "Descripcion": "La aplicación muestra un mensaje de error",
+        "Nivel_Gravedad": "Media",
+        "Estado": "En Proceso"
+    }
+]

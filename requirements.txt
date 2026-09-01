@@ -1,0 +1,5 @@
+# Dashboard
+streamlit==1.62.0
+
+# Comunicación con la API
+requests==2.34.2
