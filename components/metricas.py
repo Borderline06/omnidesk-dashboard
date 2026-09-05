@@ -1,7 +1,9 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
+import time
 
+@st.fragment(run_every=2)
 def render_iot_dashboard(db_path):
     st.title("🌡️ Telemetría de Servidores (IoT)")
     st.markdown("---")
