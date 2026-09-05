@@ -9,7 +9,7 @@ En **Git Bash** dentro del proyecto:
 ```bash
 py -m venv venv
 source venv/Scripts/activate
-pip install -r requirements.txt
+pip install streamlit pandas
 py -m streamlit run app.py
 ```
 
