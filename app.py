@@ -7,7 +7,14 @@ from pathlib import Path
 import streamlit_authenticator as stauth
 from dotenv import load_dotenv
 from components.metricas import render_iot_dashboard
-from components.chat_tecnico import cerrar_ticket, inicializar_asignaciones, render_chat_tecnico
+from components.chat_tecnico import (
+    cerrar_ticket,
+    inicializar_asignaciones,
+    mostrar_mensajes,
+    render_chat_tecnico,
+    responder_ticket,
+    tomar_ticket,
+)
 from components.usuarios_dashboard import (
     crear_usuario_tecnico,
     inicializar_usuarios_dashboard,
@@ -75,6 +82,13 @@ def cargar_tickets():
     conn.close()
     return df
 
+ESTADOS_ACTIVOS = ['Esperando decisión', 'Esperando detalles', 'Abierto', 'Esperando técnico', 'En atención']
+ESTADOS_CHAT = ['Esperando técnico', 'En atención']  # estados en los que el técnico puede tomar/responder
+
+def _id_seleccionado(evento, df_vista):
+    filas = evento.selection.rows
+    return int(df_vista.iloc[filas[0]]['id']) if filas else None
+
 # --- 3. INTERFAZ PRINCIPAL ---
 usuario_actual = st.session_state.get("username", "")
 es_admin = usuario_actual.lower() == "admin"
@@ -91,60 +105,155 @@ autenticador.logout("Cerrar Sesión", location="sidebar", key="omnidesk_logout")
 
 if menu == "Gestión de Tickets":
     st.title("🖥️ Centro de Soporte Nivel 1")
-    
+
     try:
         df = cargar_tickets()
-        
+
         # --- MÉTRICAS GERENCIALES (KPIs) ---
         total_tickets = len(df)
-        abiertos = len(df[df['Estado'].isin(['Esperando decisión', 'Esperando detalles', 'Abierto', 'Esperando técnico', 'En atención'])])
+        abiertos = len(df[df['Estado'].isin(ESTADOS_ACTIVOS)])
         resueltos = len(df[df['Estado'] == 'Resuelto'])
-        
+
         kpi1, kpi2, kpi3 = st.columns(3)
         kpi1.metric("Total de Incidentes", total_tickets)
         kpi2.metric("Casos Pendientes", abiertos)
         kpi3.metric("Casos Resueltos", resueltos)
         st.markdown("---")
 
-        col1, col2 = st.columns([5, 2])
-        
-        with col1:
-            st.subheader("📥 Bandeja de Entrada (Activos)")
-            df_activos = df[df['Estado'].isin(['Esperando decisión', 'Esperando detalles', 'Abierto', 'Esperando técnico', 'En atención'])].drop(columns=['user_id', 'assigned_username'])
-            if not df_activos.empty:
-                st.dataframe(df_activos, use_container_width=True, hide_index=True)
-            else:
+        # --- FILTROS ---
+        f1, f2, f3, f4, f5 = st.columns([3, 2, 2, 2, 1], vertical_alignment="bottom")
+        busqueda = f1.text_input("Buscar", placeholder="Usuario, problema o #ID", key="filtro_busqueda")
+        filtro_estado = f2.multiselect("Estado", sorted(df['Estado'].dropna().unique()), key="filtro_estado")
+        filtro_urgencia = f3.multiselect("Urgencia", sorted(df['Urgencia'].dropna().unique()), key="filtro_urgencia")
+        filtro_tecnico = f4.selectbox(
+            "Técnico", ["Todos", "Sin asignar"] + sorted(df['Técnico asignado'].loc[df['assigned_username'].notna()].unique()),
+            key="filtro_tecnico",
+        )
+        if f5.button("🔄", help="Refrescar panel", use_container_width=True):
+            st.rerun()
+
+        df_filtrado = df
+        if busqueda.strip():
+            patron = busqueda.strip().lstrip("#")
+            df_filtrado = df_filtrado[
+                df_filtrado['Usuario'].fillna('').str.contains(patron, case=False, regex=False)
+                | df_filtrado['Problema'].fillna('').str.contains(patron, case=False, regex=False)
+                | (df_filtrado['id'].astype(str) == patron)
+            ]
+        if filtro_estado:
+            df_filtrado = df_filtrado[df_filtrado['Estado'].isin(filtro_estado)]
+        if filtro_urgencia:
+            df_filtrado = df_filtrado[df_filtrado['Urgencia'].isin(filtro_urgencia)]
+        if filtro_tecnico == "Sin asignar":
+            df_filtrado = df_filtrado[df_filtrado['assigned_username'].isna()]
+        elif filtro_tecnico != "Todos":
+            df_filtrado = df_filtrado[df_filtrado['Técnico asignado'] == filtro_tecnico]
+
+        columnas_vista = ['id', 'Usuario', 'Problema', 'Categoría', 'Urgencia', 'Estado', 'Fecha', 'Técnico asignado']
+        df_activos = df_filtrado[df_filtrado['Estado'].isin(ESTADOS_ACTIVOS)][columnas_vista].reset_index(drop=True)
+        df_resueltos = df_filtrado[df_filtrado['Estado'] == 'Resuelto'][columnas_vista].reset_index(drop=True)
+
+        # --- TABLAS CON SELECCIÓN DE FILA ---
+        tab_activos, tab_historial = st.tabs([
+            f"📥 Bandeja de Entrada ({len(df_activos)})",
+            f"🗄️ Historial de Resoluciones ({len(df_resueltos)})",
+        ])
+        with tab_activos:
+            if df_activos.empty:
                 st.success("🎉 No hay tickets pendientes. Bandeja limpia.")
-                
-            # --- TRAZABILIDAD Y AUDITORÍA ---
-            st.subheader("🗄️ Historial de Resoluciones")
-            df_resueltos = df[df['Estado'] == 'Resuelto'].drop(columns=['user_id', 'assigned_username'])
-            if not df_resueltos.empty:
-                # Mostramos los resueltos en gris para diferenciarlos visualmente
-                st.dataframe(df_resueltos, use_container_width=True, hide_index=True)
+                sel_activos = None
             else:
-                st.info("Aún no hay tickets resueltos en el historial.")
-                
-        with col2:
-            st.subheader("Acciones Técnicas")
-            if not df_activos.empty:
-                ticket_seleccionado = st.selectbox("Seleccione ID del Ticket", df_activos['id'].tolist())
-                fila_seleccionada = df.loc[df['id'] == ticket_seleccionado].iloc[0]
-                asignado_username = fila_seleccionada['assigned_username']
-                puede_resolver = pd.isna(asignado_username) or asignado_username == usuario_actual
-                if not puede_resolver:
-                    st.caption(f"Técnico asignado: {fila_seleccionada['Técnico asignado']}. Toma el ticket desde el chat para atenderlo.")
-                if st.button("✅ Marcar como Resuelto", use_container_width=True, disabled=not puede_resolver):
-                    user_id = df.loc[df['id'] == ticket_seleccionado, 'user_id'].values[0]
-                    try:
-                        cerrar_ticket(DB_PATH, ticket_seleccionado, user_id, usuario_actual)
-                        st.success(f"Ticket #{ticket_seleccionado} cerrado y usuario notificado.")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"No se pudo cerrar el ticket: {e}")
-                    
-            if st.button("🔄 Refrescar Panel", use_container_width=True):
-                st.rerun()
+                evento_activos = st.dataframe(
+                    df_activos, use_container_width=True, hide_index=True, height=320,
+                    on_select="rerun", selection_mode="single-row", key="tabla_activos",
+                )
+                sel_activos = _id_seleccionado(evento_activos, df_activos)
+        with tab_historial:
+            if df_resueltos.empty:
+                st.info("No hay tickets resueltos que coincidan con los filtros.")
+                sel_historial = None
+            else:
+                evento_historial = st.dataframe(
+                    df_resueltos, use_container_width=True, hide_index=True, height=320,
+                    on_select="rerun", selection_mode="single-row", key="tabla_historial",
+                )
+                sel_historial = _id_seleccionado(evento_historial, df_resueltos)
+
+        # Si cambió la selección en alguna tabla, esa pasa a ser la del detalle
+        previas = st.session_state.get("_sel_tablas", (None, None))
+        ticket_detalle = st.session_state.get("ticket_detalle")
+        if sel_activos is not None and sel_activos != previas[0]:
+            ticket_detalle = sel_activos
+        if sel_historial is not None and sel_historial != previas[1]:
+            ticket_detalle = sel_historial
+        if ticket_detalle not in (sel_activos, sel_historial):
+            ticket_detalle = sel_activos if sel_activos is not None else sel_historial
+        st.session_state["_sel_tablas"] = (sel_activos, sel_historial)
+        st.session_state["ticket_detalle"] = ticket_detalle
+
+        st.markdown("---")
+        if ticket_detalle is None:
+            st.info("Selecciona un ticket en la bandeja o en el historial para ver la conversación y gestionar la respuesta.")
+        else:
+            fila = df.loc[df['id'] == ticket_detalle].iloc[0]
+            estado = fila['Estado']
+            activo = estado in ESTADOS_ACTIVOS
+            atendible = estado in ESTADOS_CHAT
+            asignado_username = None if pd.isna(fila['assigned_username']) else fila['assigned_username']
+            es_asignado_actual = bool(asignado_username) and asignado_username.lower() == usuario_actual.lower()
+            puede_resolver = activo and (not asignado_username or es_asignado_actual)
+
+            st.subheader(f"🎫 Ticket #{ticket_detalle} · {fila['Usuario']}")
+            st.caption(
+                f"Estado: {estado} · Urgencia: {fila['Urgencia']} · Categoría: {fila['Categoría']} · "
+                f"Técnico: {fila['Técnico asignado']} · {fila['Fecha']}"
+            )
+            with st.container(border=True):
+                st.markdown("**📝 Problema reportado**")
+                st.write(fila['Problema'])
+
+            col_hilo, col_acciones = st.columns([5, 2])
+            with col_hilo:
+                mostrar_mensajes(DB_PATH, int(ticket_detalle), str(fila['Usuario']))
+            with col_acciones:
+                st.subheader("Acciones Técnicas")
+                if not activo:
+                    st.info("Caso resuelto. Conversación disponible solo para consulta.")
+                elif atendible and not asignado_username:
+                    st.info("Ticket sin asignar. Tómalo para poder responder al usuario.")
+                    if st.button("🙋 Tomar ticket", key=f"tomar_{ticket_detalle}", use_container_width=True):
+                        tomado, mensaje = tomar_ticket(DB_PATH, int(ticket_detalle), usuario_actual, nombre_actual)
+                        (st.success if tomado else st.warning)(mensaje)
+                        if tomado:
+                            st.rerun()
+                elif asignado_username and not es_asignado_actual:
+                    st.caption(f"Lo atiende {fila['Técnico asignado']}. Solo esa persona puede responder o resolver.")
+                elif not atendible:
+                    st.caption("El usuario aún no ha sido transferido a un técnico; puedes cerrarlo si ya está resuelto.")
+
+                if activo and atendible and es_asignado_actual:
+                    with st.form(f"responder_{ticket_detalle}", clear_on_submit=True):
+                        respuesta = st.text_area("Respuesta al usuario (se envía por Telegram)", height=140)
+                        enviar = st.form_submit_button("📨 Enviar respuesta", use_container_width=True)
+                    if enviar:
+                        if not respuesta.strip():
+                            st.warning("Escribe una respuesta antes de enviar.")
+                        else:
+                            try:
+                                responder_ticket(DB_PATH, int(ticket_detalle), fila['user_id'], usuario_actual, respuesta.strip())
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"No se pudo enviar la respuesta: {e}")
+
+                if activo:
+                    if st.button("✅ Marcar como Resuelto", key=f"resolver_{ticket_detalle}",
+                                 use_container_width=True, disabled=not puede_resolver):
+                        try:
+                            cerrar_ticket(DB_PATH, int(ticket_detalle), fila['user_id'], usuario_actual)
+                            st.success(f"Ticket #{ticket_detalle} cerrado y usuario notificado.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"No se pudo cerrar el ticket: {e}")
     except Exception as e:
         st.error(f"Error de conexión con SQLite: {e}")
 

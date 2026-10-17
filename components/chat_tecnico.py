@@ -161,6 +161,27 @@ def transferir_ticket(db_path, ticket_id, user_id, tecnico_actual, nombre_actual
         conn.close()
 
 
+def responder_ticket(db_path, ticket_id, user_id, tecnico_username, texto):
+    """Envía la respuesta del técnico asignado al usuario por Telegram y la guarda en el hilo."""
+    conn = sqlite3.connect(db_path, timeout=15)
+    try:
+        conn.execute('BEGIN IMMEDIATE')
+        _verificar_ticket_activo(conn, ticket_id)
+        _verificar_tecnico_asignado(conn, ticket_id, tecnico_username)
+        _enviar_telegram(user_id, texto)
+        conn.execute(
+            'INSERT INTO ticket_messages (ticket_id, sender, contenido, fecha) VALUES (?, ?, ?, datetime(\'now\', \'localtime\'))',
+            (int(ticket_id), f'tecnico:{tecnico_username}', texto),
+        )
+        conn.execute("UPDATE tickets SET estado = 'En atención' WHERE id = ?", (int(ticket_id),))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def _verificar_tecnico_asignado(conn, ticket_id, tecnico_username):
     asignacion = conn.execute(
         'SELECT technician_username FROM ticket_assignments WHERE ticket_id = ?',
@@ -339,29 +360,13 @@ def render_chat_tecnico(db_path, tecnico_username='admin', tecnico_nombre='Admin
         else:
             st.caption('No hay otro técnico disponible para recibir la transferencia.')
 
-    _mostrar_mensajes(db_path, int(ticket_id), str(ticket['username']))
+    mostrar_mensajes(db_path, int(ticket_id), str(ticket['username']))
 
     if activo and es_asignado_actual:
         texto = st.chat_input('Escribe tu respuesta al usuario…', key=f'respuesta_ticket_{ticket_id}')
         if texto:
             try:
-                conn = sqlite3.connect(db_path, timeout=15)
-                try:
-                    conn.execute('BEGIN IMMEDIATE')
-                    _verificar_ticket_activo(conn, ticket_id)
-                    _verificar_tecnico_asignado(conn, ticket_id, tecnico_username)
-                    _enviar_telegram(ticket['user_id'], texto)
-                    conn.execute(
-                        'INSERT INTO ticket_messages (ticket_id, sender, contenido, fecha) VALUES (?, ?, ?, datetime(\'now\', \'localtime\'))',
-                        (int(ticket_id), f'tecnico:{tecnico_username}', texto),
-                    )
-                    conn.execute("UPDATE tickets SET estado = 'En atención' WHERE id = ?", (int(ticket_id),))
-                    conn.commit()
-                except Exception:
-                    conn.rollback()
-                    raise
-                finally:
-                    conn.close()
+                responder_ticket(db_path, ticket_id, ticket['user_id'], tecnico_username, texto)
                 st.rerun()
             except Exception as error:
                 st.error(f'No se pudo enviar la respuesta: {error}')
@@ -378,7 +383,7 @@ def _etiqueta_ticket(tickets, ticket_id):
 
 
 @st.fragment(run_every=3)
-def _mostrar_mensajes(db_path, ticket_id, nombre_usuario):
+def mostrar_mensajes(db_path, ticket_id, nombre_usuario):
     try:
         with closing(sqlite3.connect(db_path)) as conn:
             mensajes = pd.read_sql_query(

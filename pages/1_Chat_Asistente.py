@@ -3,6 +3,12 @@ import google.generativeai as genai
 import os
 import tempfile
 from dotenv import load_dotenv
+from components.ia_tecnica import MODELO_POR_DEFECTO, responder, sugerir_solucion
+
+# Esta página multipage corre como script independiente: exige la sesión iniciada en app.py
+if not st.session_state.get("authentication_status"):
+    st.warning("🔒 Inicia sesión desde la página principal para usar el asistente.")
+    st.stop()
 
 # Forzar la sobrescritura de cualquier variable basura en la memoria de Windows
 load_dotenv(override=True)
@@ -37,8 +43,8 @@ if archivo_audio is not None:
                     "data": audio_bytes
                 }
                 
-                # 3. Procesamos (puedes cambiar 'gemini-1.5-pro' por el modelo que te funcionó arriba)
-                modelo_audio = genai.GenerativeModel('gemini-3.6-flash')
+                # 3. Procesamos con el modelo configurado en GEMINI_MODEL
+                modelo_audio = genai.GenerativeModel(os.getenv("GEMINI_MODEL", MODELO_POR_DEFECTO))
                 respuesta_audio = modelo_audio.generate_content([
                     "Transcribe literalmente el contenido de este audio, sin agregar resúmenes.", 
                     datos_audio
@@ -47,20 +53,20 @@ if archivo_audio is not None:
                 st.success("Transcripción completada:")
                 st.info(respuesta_audio.text)
 
-                # Instanciamos un modelo localmente para resolver el problema transcrito
-                modelo_resolucion = genai.GenerativeModel('gemini-3.6-flash')
-                solucion = modelo_resolucion.generate_content(
-                    f"Eres un técnico de soporte TI. Resuelve de forma breve este problema: {respuesta_audio.text}"
-                )
+                # El ingeniero N3 resuelve el problema transcrito
+                solucion = sugerir_solucion(respuesta_audio.text)
                 st.success("Sugerencia Técnica de OmniDesk AI:")
-                st.write(solucion.text)
+                st.write(solucion)
                                 
             except Exception as e:
                 st.error(f"Error procesando el audio: {e}")
 
 st.divider()
 # --- SECCIÓN 2: CHATBOT INTERACTIVO ---
-st.subheader("💬 Chat de Soporte Técnico")
+st.subheader("💬 Chat de Soporte Técnico (Ingeniero N3)")
+if st.button("🧹 Limpiar conversación"):
+    st.session_state.mensajes_chat = []
+    st.rerun()
 
 # Inicializar historial de chat en la memoria de la sesión
 if "mensajes_chat" not in st.session_state:
@@ -84,11 +90,8 @@ if texto_usuario:
     with st.chat_message("assistant"):
         with st.spinner("Analizando..."):
             try:
-                modelo_chat = genai.GenerativeModel('gemini-3.6-flash')
-                respuesta = modelo_chat.generate_content(
-                    f"Eres un técnico de soporte Nivel 1. Responde de forma breve y técnica a este problema: {texto_usuario}"
-                )
-                texto_respuesta = respuesta.text
+                # El historial previo (sin el mensaje actual) da memoria a la conversación
+                texto_respuesta = responder(st.session_state.mensajes_chat[:-1], texto_usuario)
                 st.markdown(texto_respuesta)
                 st.session_state.mensajes_chat.append({"rol": "assistant", "contenido": texto_respuesta})
             except Exception as e:
