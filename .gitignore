@@ -4,6 +4,7 @@ env/
 
 # Variables de entorno
 .env
+.streamlit/.auth_cookie_secret
 
 # Archivos de caché de Python
 __pycache__/
