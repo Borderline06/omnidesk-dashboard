@@ -27,6 +27,9 @@ def _token_telegram():
 
 
 def _enviar_telegram(user_id, texto):
+    # Los tickets creados por el sistema (alertas IoT, user_id 'iot:...') no tienen chat de Telegram
+    if not str(user_id).isdigit():
+        return
     token = _token_telegram()
     if not token:
         raise RuntimeError('No se encontró TELEGRAM_TOKEN en el entorno ni en omnidesk-backend/.env.')

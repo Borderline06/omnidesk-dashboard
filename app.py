@@ -7,6 +7,7 @@ from pathlib import Path
 import streamlit_authenticator as stauth
 from dotenv import load_dotenv
 from components.metricas import render_iot_dashboard
+from components.reportes import inicializar_reportes, render_reportes
 from components.chat_tecnico import (
     cerrar_ticket,
     inicializar_asignaciones,
@@ -28,6 +29,7 @@ load_dotenv(APP_DIR / ".env")
 DB_PATH = str(APP_DIR.parent / "omnidesk-backend" / "omnidesk.db")
 inicializar_usuarios_dashboard(DB_PATH)
 inicializar_asignaciones(DB_PATH)
+inicializar_reportes(DB_PATH)
 
 # --- 1. SISTEMA DE AUTENTICACIÓN
 def obtener_clave_cookie():
@@ -98,6 +100,7 @@ st.sidebar.title("⚙️ OmniDesk Control")
 st.sidebar.markdown(f"**{ 'Administrador' if es_admin else 'Técnico' }:** {nombre_actual}")
 modulos = ["Gestión de Tickets", "Chat con usuarios", "Monitoreo IoT"]
 if es_admin:
+    modulos.append("Reportes")
     modulos.append("Administrar técnicos")
 menu = st.sidebar.radio("Módulos", modulos)
 
@@ -262,6 +265,9 @@ elif menu == "Chat con usuarios":
 
 elif menu == "Monitoreo IoT":
     render_iot_dashboard(DB_PATH)
+
+elif menu == "Reportes" and es_admin:
+    render_reportes(DB_PATH)
 
 elif menu == "Administrar técnicos" and es_admin:
     st.title("👥 Administrar técnicos")

@@ -6,7 +6,7 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
-TEMP_ALERTA = float(os.getenv("TEMP_ALERTA", "32.0"))  # mismo umbral que el backend
+TEMP_ALERTA = float(os.getenv("TEMP_ALERTA", "34.0"))  # mismo umbral que el backend
 SEGUNDOS_DATOS_OBSOLETOS = 120
 VENTANAS = [50, 100, 200, 500]
 
